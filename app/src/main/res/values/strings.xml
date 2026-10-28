@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">充电观测台</string>
+    <string name="notification_channel_name">充电监测</string>
+    <string name="notification_channel_desc">常驻显示当前充电功率与协议推断结果</string>
+</resources>

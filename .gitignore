@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+.kotlin/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# local debug artifacts (device screenshots, pulled databases)
+build-artifacts/
+*.db
+*.db-wal
+*.db-shm
