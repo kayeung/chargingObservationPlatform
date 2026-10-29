@@ -62,6 +62,8 @@ class MonitorService : Service() {
     private val window = ArrayDeque<ChargeSample>(900)
 
     private var running = false
+    /** Set when the user stops monitoring: the session must end even if the cable is still plugged. */
+    private var explicitStop = false
     private var previous: ChargeSample? = null
     private var assessment: ProtocolAssessment? = null
     private var lastLoggedProtocol: String? = null
@@ -122,6 +124,7 @@ class MonitorService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            explicitStop = true
             prefs.setMonitoringDesired(false)
             stopSelf()
             return START_NOT_STICKY
@@ -409,7 +412,16 @@ class MonitorService : Service() {
         try {
             if (tracker.id != 0L) {
                 val top = assessment?.top?.profile?.name ?: "未识别"
-                tracker.close(System.currentTimeMillis(), top, assessment?.confidence ?: 0)
+                val confidence = assessment?.confidence ?: 0
+                // A system-initiated restart (START_STICKY, watchdog, task removal) must not split one
+                // charge into two sessions: keep the row open while the cable is still plugged in so
+                // SessionTracker.restore() can resume it on the next start.
+                val stillPlugged = previous?.isPlugged == true
+                if (stillPlugged && !explicitStop) {
+                    tracker.flush(System.currentTimeMillis(), top, confidence)
+                } else {
+                    tracker.close(System.currentTimeMillis(), top, confidence)
+                }
             }
         } catch (t: Throwable) {
             // database closed

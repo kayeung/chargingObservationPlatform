@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbManager
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -97,7 +98,7 @@ object Diagnostics {
             line("extras=NULL")
         } else {
             extras.keySet().sorted().forEach { key ->
-                val value = runCatching { extras.get(key) }.getOrNull()
+                val value = rawExtra(extras, key)
                 val type = value?.javaClass?.simpleName ?: "null"
                 line("extra.$key = $value  [$type]")
             }
@@ -218,6 +219,15 @@ object Diagnostics {
         line("=== end ===")
         return sb.toString()
     }
+
+    /**
+     * Dumping an *unknown* extra requires the generic [Bundle.get]: the typed getters added in API 33
+     * only work when the type is known in advance. The deprecation is therefore intentional and is
+     * confined to this helper.
+     */
+    @Suppress("DEPRECATION")
+    private fun rawExtra(extras: Bundle, key: String): Any? =
+        runCatching { extras.get(key) }.getOrNull()
 
     private fun probe(path: String): String {
         val file = File(path)
