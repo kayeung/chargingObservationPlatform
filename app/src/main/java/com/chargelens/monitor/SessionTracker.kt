@@ -1,6 +1,7 @@
 package com.chargelens.monitor
 
 import com.chargelens.core.ChargeSample
+import com.chargelens.core.ChargeSession
 import com.chargelens.data.SampleStore
 
 enum class SessionEvent { NONE, STARTED, ENDED }
@@ -35,8 +36,25 @@ class SessionTracker(private val store: SampleStore, private val deviceName: Str
     private var lastProtocol: String = ""
     private var lastConfidence: Int = 0
 
+    /**
+     * Resumes the session that was open when the process died.
+     *
+     * Stale rows are closed in the database instead of being dropped in memory: [SampleStore
+     * .queryOpenSession] always returns the newest open row, so an orphan left behind would shadow
+     * every session started afterwards.
+     */
     fun restore() {
-        val open = store.queryOpenSession() ?: return
+        repeat(MAX_STALE_CLOSE) {
+            val open = store.queryOpenSession() ?: return
+            if (System.currentTimeMillis() - open.startTs <= STALE_SESSION_MS) {
+                resume(open)
+                return
+            }
+            closeStale(open)
+        }
+    }
+
+    private fun resume(open: ChargeSession) {
         id = open.id
         startTs = open.startTs
         peakW = open.peakW
@@ -46,11 +64,22 @@ class SessionTracker(private val store: SampleStore, private val deviceName: Str
         endSoc = open.endSoc
         lastPlug = open.plugged
         lastTs = 0L
-        // Do not resume a session that has been idle for more than 6 hours.
-        if (System.currentTimeMillis() - open.startTs > 6 * 3_600_000L) {
-            lastPlug = 0
-            id = 0L
-        }
+    }
+
+    /** Closes an abandoned session at its last stored sample so it keeps the data it already has. */
+    private fun closeStale(open: ChargeSession) {
+        val lastSample = store.latestSampleTs(open.id)
+        store.updateSession(
+            id = open.id,
+            endTs = if (lastSample > open.startTs) lastSample else open.startTs,
+            peakW = open.peakW,
+            avgW = open.avgW,
+            energyWh = open.energyWh,
+            endSoc = open.endSoc,
+            protocol = open.protocol,
+            confidence = open.confidence,
+            sampleCount = open.sampleCount
+        )
     }
 
     fun onSample(sample: ChargeSample): SessionEvent {
@@ -145,5 +174,13 @@ class SessionTracker(private val store: SampleStore, private val deviceName: Str
         lastProtocol = ""
         lastConfidence = 0
         id = store.createSession(sample.ts, sample.plugged, sample.soc, deviceName)
+    }
+
+    companion object {
+        /** A session left open for longer than this was abandoned, not paused. */
+        private const val STALE_SESSION_MS = 6 * 3_600_000L
+
+        /** Guards against an endless loop if a stale row cannot be updated. */
+        private const val MAX_STALE_CLOSE = 20
     }
 }

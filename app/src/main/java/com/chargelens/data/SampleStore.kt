@@ -149,6 +149,17 @@ class SampleStore(context: Context) :
         }
     }
 
+    /** Last timestamp that belongs to [sessionId], or 0 when the session has no samples left. */
+    fun latestSampleTs(sessionId: Long): Long {
+        if (sessionId <= 0L) return 0L
+        readableDatabase.rawQuery(
+            "SELECT MAX(ts) FROM $TABLE_SAMPLES WHERE sid = ?",
+            arrayOf(sessionId.toString())
+        ).use { c ->
+            return if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else 0L
+        }
+    }
+
     /** Newest persisted sample, used by the diagnostic report to prove end-to-end storage. */
     fun latestSample(): ChargeSample? {
         readableDatabase.query(TABLE_SAMPLES, null, null, null, null, null, "ts DESC", "1").use { c ->
@@ -189,9 +200,9 @@ class SampleStore(context: Context) :
             SELECT (ts / $bucket) * $bucket AS b,
                    AVG(CASE WHEN gap = 0 THEN mv * ua / 1000000.0 ELSE 0 END) AS avg_mw,
                    MAX(CASE WHEN gap = 0 THEN mv * ua / 1000000.0 ELSE 0 END) AS max_mw,
-                   AVG(mv) AS avg_mv,
-                   AVG(ua) AS avg_ua,
-                   AVG(soc) AS avg_soc,
+                   AVG(CASE WHEN gap = 0 THEN mv END) AS avg_mv,
+                   AVG(CASE WHEN gap = 0 THEN ua END) AS avg_ua,
+                   AVG(CASE WHEN gap = 0 THEN soc END) AS avg_soc,
                    COUNT(*) AS c
             FROM $TABLE_SAMPLES
             WHERE ts >= ? AND ts <= ?

@@ -36,8 +36,8 @@
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-仓库没有提交二进制的 `gradle-wrapper.jar`，用 Android Studio 打开时按提示补全 wrapper
-（或使用本地 Gradle 8.9）即可；`local.properties` 由 IDE 生成。
+仓库已包含 Gradle Wrapper（8.9），无需本地安装 Gradle；`local.properties` 由 IDE 生成，
+或手动写入 `sdk.dir=<Android SDK 路径>`。
 
 ### 在 vivo 机型上安装
 
