@@ -1,6 +1,7 @@
 package com.chargelens.ui
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -63,6 +64,7 @@ fun SettingsScreen(
     onClearData: () -> Unit
 ) {
     val context = LocalContext.current
+    val isVivoFamily = remember { isVivo() }
     var confirmClear by remember { mutableStateOf(false) }
     var batteryIgnored by remember { mutableStateOf(isIgnoringOptimizations(context)) }
     var notificationsGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
@@ -149,6 +151,25 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(
+                            text = "后台耗电管理",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (isVivoFamily) {
+                                "需选「允许后台耗电」，否则熄屏后进程会被冻结"
+                            } else {
+                                "打开厂商的后台耗电管理页；找不到时回退到应用详情"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Amber
+                        )
+                    }
+                    TextButton(onClick = { openOemPowerSettings(context) }) { Text("去设置") }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
                             text = "通知权限",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
@@ -166,8 +187,9 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "额外建议：在 vivo / 小米 / OPPO 的“自启动”“后台高耗电”“电池优化”中允许本应用，" +
-                        "否则系统可能在熄屏数分钟后直接冻结进程，导致曲线出现断点。",
+                    text = "实测经验：仅加电池优化白名单还不够，vivo 系还需在「后台耗电管理」中选择" +
+                        "「允许后台耗电」，否则熄屏数秒后进程会被冻结、唤醒锁会被系统置为 DISABLED，" +
+                        "曲线出现断点。小米 / OPPO 对应“后台耗电管理”“省电策略”。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -353,6 +375,46 @@ private fun SwitchRow(
 private fun isIgnoringOptimizations(context: Context): Boolean {
     val manager = context.getSystemService(PowerManager::class.java) ?: return false
     return manager.isIgnoringBatteryOptimizations(context.packageName)
+}
+
+private fun isVivo(): Boolean {
+    val vendor = "${Build.MANUFACTURER} ${Build.BRAND}".lowercase()
+    return vendor.contains("vivo") || vendor.contains("iqoo")
+}
+
+/**
+ * OEM pages that actually control the process freezer on Chinese ROMs. They are not part of the
+ * public SDK and the component names move between ROM versions, so every entry is best-effort and
+ * the app falls back to its own detail page when none of them resolves.
+ */
+private val OEM_POWER_PAGES = listOf(
+    // vivo / iQOO: 设置 → 电池 → 后台耗电管理（智能控制 / 允许后台耗电 / 限制后台耗电）
+    ComponentName("com.iqoo.powersaving", "com.iqoo.powersaving.BackgroundHighUsageActivity"),
+    // vivo / iQOO: i管家 → 自启动
+    ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+    // 小米 / 红米：应用智能省电
+    ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"),
+    // OPPO / 一加 / realme：耗电管理
+    ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity")
+)
+
+private fun openOemPowerSettings(context: Context) {
+    for (page in OEM_POWER_PAGES) {
+        val opened = runCatching {
+            context.startActivity(
+                Intent().setComponent(page).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.isSuccess
+        if (opened) return
+    }
+    runCatching {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}")
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
 }
 
 private fun requestIgnoreOptimizations(context: Context) {
