@@ -354,6 +354,46 @@ dumpsys battery (Runtime.exec)              -> Can't find service: battery
 
 > 调试备注：vivo 会拦截 `adb install`（`INSTALL_FAILED_ABORTED: User rejected permissions`），
 > 需亮屏解锁 + 允许「USB 安装」，并使用 `adb install -i com.android.vending` 指定来源。
+> 若已装过其他签名（如另一台机器打的 debug 包），会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，
+> 需先 `adb uninstall com.chargelens`；数据可用
+> `adb exec-out run-as com.chargelens tar -cf - databases files > backup.tar` 备份。
+
+### 9.4 Android 17 机型复测（vivo V2454A，2026-10）
+
+系统 Android 17 / SDK 37，`compileSdk 35` 的安装包可直接运行。可读信号与 9.3 一致：
+
+| 字段 | 值 | 备注 |
+| --- | --- | --- |
+| `plugged` / `status` | 1 / 2 | 有线充电中 |
+| `voltage` | 4095 mV | 电池侧，非 VBUS |
+| `temperature` | 364 → 36.4 ℃ | |
+| `charge_counter` | 3935764 µAh | 可用于电流单位校准 |
+| `charging_speed` | 4 | 厂商档位枚举 |
+| `adapter_power` | 0 | 满电段为 0 |
+| `invalid_charger` | 0 | 校验通过 |
+| `reverse_wireless_chg_state` / `wls_otg_status` | 0 / 0 | |
+| `cycle_count` | 569 | |
+| `max_charging_voltage` / `max_charging_current` | 0 / 0 | 所以 `vinClass` 为空 |
+| `BATTERY_PROPERTY_CURRENT_NOW` | −2197942 µA | 充电中为负，应用按 `status` 归一 |
+
+**新发现一：`BatteryManager.isCharging` 不可信。** 同一时刻 API 返回 `false`，而
+`dumpsys battery` 是 `AC powered: true`、`status: 2`，粘性广播是 `plugged=1`。
+因此 1.0.1 起自动开始记录只读广播（`BatteryExtras.plugged`），不再调用该 API。
+
+**新发现二：熄屏冻结会让唤醒锁失效。** 未放行厂商耗电策略时，熄屏 90 秒只落 24 个点，
+`events` 表记录 `gap | 采样中断 87 秒`，同时 `dumpsys power` 给出：
+
+```
+PARTIAL_WAKE_LOCK 'ChargeLens::sampler' DISABLED (uid=10384 isFrozen=true ...) mIsFrozen
+```
+
+即进程先被冻结（`cgroup freezer`），平台随后把应用持有的 `PARTIAL_WAKE_LOCK` 置为 `DISABLED`。
+实测无效的手段：Doze 白名单（`dumpsys deviceidle whitelist +com.chargelens`）、
+`appops RUN_ANY_IN_BACKGROUND allow`、i管家「自启动」。唯一有效的是
+「设置 → 电池 → 后台耗电管理 → 允许后台耗电」（`com.iqoo.powersaving/.BackgroundHighUsageActivity`）。
+
+放行后复测：熄屏 64 秒采样 336 → 400，1 Hz 连续、无新增 gap、`isFrozen=false`，
+说明采样与唤醒锁逻辑本身没有问题，瓶颈完全在 ROM 的冻结策略。
 
 ## 10. 提高准确度的可行路径（按性价比排序）
 

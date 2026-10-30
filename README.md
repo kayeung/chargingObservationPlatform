@@ -55,7 +55,10 @@ adb install -r -g -i com.android.vending app-debug.apk
 
 ## 使用建议
 
-1. 首次启动授予通知权限；同意「电池优化白名单」，并在 vivo / 小米 / OPPO 的自启动与后台高耗电列表放行。
+1. 首次启动授予通知权限；同意「电池优化白名单」。**仅这一步在 vivo 上不够**：还要到
+   「设置 → 电池 → 后台耗电管理」把本应用改成「允许后台耗电」，否则熄屏数秒后进程会被冻结
+   （设置页已提供该页面的直达入口）。小米 / OPPO 对应「应用智能省电」「耗电管理」。
+   参考：自启动列表（i管家）只控制开机与关联拉起，不能阻止熄屏冻结。
 2. 协议识别最有效的区间是**电量低于 40%**：插上充电器后记录 1–2 分钟，握手与功率爬升特征最明显。
 3. 在设置里标注充电器型号，可显著提升同品牌档位的权重。
 4. 历史页可切换 1 h / 24 h / 7 d / 30 d，聚合粒度会随数据跨度自动调整；长按/拖动图表查看数值。
@@ -68,6 +71,7 @@ adb install -r -g -i com.android.vending app-debug.apk
 | --- | --- | --- |
 | vivo 旗舰机型（型号已脱敏） | Android 16 / SDK 36 | 应用可运行；6 个厂商私有字段可用；sysfs 全被拒 |
 | 另一台 vivo 机型（型号已脱敏） | Android 16 / SDK 36 | 存在 `vfcs-fchg`、`wls_rx` 等私有节点，但 shell 也被 SELinux 拒绝 |
+| vivo V2454A | Android 17 / SDK 37 | 1 Hz 采样、会话、通知、CSV 导出、协议推断全部正常；`BatteryManager.isCharging` 返回 `false`（广播仍为 `plugged=1`/`status=2`）；熄屏需「允许后台耗电」才能连续记录 |
 
 在实测机上读到的**可读信号**：
 
@@ -83,7 +87,20 @@ adb install -r -g -i com.android.vending app-debug.apk
 - `UsbManager.getPorts()` → `SecurityException: requires android.permission.MANAGE_USB`
 - `dumpsys battery` → `Can't find service: battery`（无 `DUMP` 权限）
 
-> 这些结果与应用内「协议 → 本机可观测性」页面显示一致，也与
+### 熄屏冻结的实测证据（vivo V2454A / Android 17）
+
+未放行「后台耗电管理」时，熄屏 90 秒只记录了 24 个点，`events` 表出现 `gap | 采样中断 87 秒`；
+同一时刻 `dumpsys power` 显示唤醒锁已被平台禁用：
+
+```
+PARTIAL_WAKE_LOCK 'ChargeLens::sampler' DISABLED (uid=10384 isFrozen=true ...) mIsFrozen
+```
+
+把「设置 → 电池 → 后台耗电管理」改为「允许后台耗电」后复测：熄屏 64 秒采样 336 → 400，
+1 Hz 连续、无新增 gap 事件、`isFrozen=false`。i管家 的「自启动」与 Doze 白名单**都不能**阻止该冻结，
+只能靠厂商自己的耗电策略放行。
+
+> 以上结果与应用内「协议 → 本机可观测性」页面显示一致，也与
 > [docs/feasibility.md](docs/feasibility.md) 第 9 节的记录一致。
 
 ## 架构
@@ -151,6 +168,10 @@ BatteryManager + ACTION_BATTERY_CHANGED
 - 恒压段（一般 SOC > 70%）功率被电池接受能力钳制，不同档位曲线高度重合，误判率上升。
 - 无线充电只能判定「无线」与功率档位，无法读取频率、耦合或 Qi 版本。
 - 部分机型 `CURRENT_NOW` 返回 0 或被屏蔽，此时只能依赖电压与功率台阶，可信度显著下降。
+- 部分 ROM 的 `BatteryManager.isCharging` 与电池广播不一致（实测 vivo V2454A / Android 17 恒为
+  `false`，而广播是 `plugged=1`、`status=2`）。应用只用广播判断插电状态，不依赖该 API。
+- 国产 ROM 会在熄屏后**冻结**进程，此时平台把应用持有的 `PARTIAL_WAKE_LOCK` 置为 `DISABLED`，
+  前台服务、唤醒锁、Doze 白名单都无法阻止，只能在厂商的「后台耗电管理」里放行（见使用建议第 1 条）。
 
 ## 测试
 
