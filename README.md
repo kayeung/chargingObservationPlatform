@@ -36,6 +36,9 @@
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+不想自己编译可直接下载签名包：
+[Releases](https://github.com/kayeung/chargingObservationPlatform/releases)（`ChargeLens-1.0.1.apk`，Android 8.0+）。
+
 仓库已包含 Gradle Wrapper（8.9），无需本地安装 Gradle；`local.properties` 由 IDE 生成，
 或手动写入 `sdk.dir=<Android SDK 路径>`。
 
